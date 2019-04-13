@@ -1,21 +1,112 @@
-language: c
-
-compiler:
-  - gcc
-  - clang
-
-os:
-  - linux
-  - osx
-
+git:
+  depth: 3
 env:
-  - CONFIG=""
-  - CONFIG="--enable-assertions"
-  - CONFIG="--enable-fixed-point"
-  - CONFIG="--enable-fixed-point --disable-float-api"
-  - CONFIG="--enable-fixed-point --enable-assertions"
+  global:
+  - secure: "ZFQifPf4X2XAL6xl5XCH3OkULNF8P0m/7i70lUm06r9fHw9uBMF55v5qqmcjGT+TO9WR8kHFH8D+Jl1h1ouZykkk8nBihgP+E1M6NEq9zSjfykjnXCWM7U90H2bYECdcZvzSLlcE7m/fctMG6eSLUEnkUeUxk7bp/FfPp8wsCVSzACb2FcJbgcJ0fCuR40qDh77zUy0qCqL2vm6hw4jueP7+rWScBvlYqEZBjrf8xcDe5rWhI6oPt6lu4hxHS8Rn/jQ37K9RghH+Z2Zb5xwCsv05qylezC009kCqmoJBl8JN7wZ8oui65EH19XQiL5Rb0tNZJ/PXXMogPbzoUvgkXbudgU1FSNUxuBu63HWxBfvpoaqi4Ap/VfB1COz02pzb0c0IDTkh7oFcQq9eeFwK6laRtdPMPoh6gdgl/8fzBevdb8Bz/+rWdB05gRexmIgagTEteUjq0l/+cnk1nmFkdYVvUBvKGn88r5MRZJSek2X33zCiv3G8Cn5X2U/PAL4mncSWdh/p5/Ygy25sb9TfPiIlndDYSLeC0FouLs91+cLTGBkm+L38klojuwxjUhCTOfdqVo8DoUhsq/2gLrFjKvRpiKrI75xM7XhDNSW3n+mXhENQGl9cUTLnYSARw84iZ+kUtAZJOFoZ8hgRW5vUxqZqerKwsgFkTX9LSH4PUZQ="
+  - secure: "s0zFuN3TN+sd5PReXjuf26PFbQ6LxAjYUVjrWtXN3x1jMP6tJt26YSuVYLhkHXkTHJQh7rqZsWDSBz8nawivpQIEegnTk7NqpoMivKbFl0S/znrhUHKFmx07gFS2uM/llyeTG19xNA7iyQqRSMPJ/9Mov9U7vQ19RPyH+KXX4JQNay81v1505vYnOhxl2ItqpSy5Rvt+FWbzgiBwsvjhnKoX3jFob7jBL4G8UpWwmmABlqWNCnIMI/pSUCRo9zJQ1UDM1USEULC2LwXqXiMP1X0cp7FUViDlQFew5CFAlPPEAWhhA6WPCQLeQX+xanrXC/F/oR4Pg1bcdxgm/uvsEfo/ylGwjygJVHoBE/8rjCXHKhNllOksSwq3w2qV3pMAYU2BTbvpl8/TrWO9/1sgCkkKSt8dPf3I+STmns2dYdabuISuxFc/g6CBkFDmyQHtRzeLO8PkniZWUFSWevo31giVbcTLgJWsfkZ2L4mqsmiVWS0SxAh2oGL5U5R/G9QP4SXvIneDM8LYqsW5PSobIkeiVBurYmYUDbT5XkWh67c7LMyT70nz7NutoPQH3MLPy8fMSyfNoTvQk2iO9zYtYnQoxzW945zrGY24HkKmCZ5Zm/YPi1v5wq01E/kD011FQnYsFNyHVjg9cjWS9ORFzuwuKdfpBLk+l0qeNjgvn9Y="
+  - AWS_DEFAULT_REGION: "us-east-1"
+  - S3_PARAMS: '"--acl public-read --cache-control \"public,must-revalidate,proxy-revalidate,max-age=0\""'
+  - OPUS_PARAMS: '"--disable-extra-programs --disable-doc --disable-hardening --enable-custom-modes"'
 
-script:
-  - ./autogen.sh
-  - ./configure $CONFIG
-  - make distcheck
+matrix:
+  include:
+
+  # -----------------
+  - name: "Linux x64"
+  # -----------------
+
+    dist: xenial
+    language: c
+    compiler: gcc
+
+    addons:
+      apt:
+        packages:
+        - gcc-4.8
+
+    before_install:
+    - pip install --user awscli
+    - export PATH=$PATH:$HOME/.local/bin
+
+    script:
+    - ./autogen.sh
+    - CC="gcc-4.8" LDFLAGS="-Wl,--wrap,memcpy" ./configure $OPUS_PARAMS
+    - make
+    - strip .libs/libopus.so
+    - "git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > revision.git"
+    - "aws s3 cp .libs/libopus.so s3://build.lwjgl.org/nightly/linux/x64/ $S3_PARAMS"
+    - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/linux/x64/libopus.so.git $S3_PARAMS"
+
+  # -----------------
+  - name: "Linux arm32"
+  # -----------------
+    dist: xenial
+    language: c
+    compiler: gcc
+
+    addons:
+      apt:
+        packages:
+        - gcc-4.8-arm-linux-gnueabihf
+        - libc6-dev-armhf-cross
+
+    before_install:
+    - pip install --user awscli
+    - export PATH=$PATH:$HOME/.local/bin
+
+    script:
+    - ./autogen.sh
+    - CC="arm-linux-gnueabihf-gcc-4.8" ./configure $OPUS_PARAMS --build=x86_64-pc-linux-gnu --host=arm-linux-gnueabihf
+    - make
+    - arm-linux-gnueabihf-strip .libs/libopus.so
+    - "git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > revision.git"
+    - "aws s3 cp .libs/libopus.so s3://build.lwjgl.org/nightly/linux/arm32/ $S3_PARAMS"
+    - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/linux/arm32/libopus.so.git $S3_PARAMS"
+
+  # -----------------
+  - name: "Linux arm64"
+  # -----------------
+    dist: xenial
+    language: c
+    compiler: gcc
+
+    addons:
+      apt:
+        packages:
+        - gcc-5-aarch64-linux-gnu # neon code compilation bugged on 4.8
+        - libc6-dev-arm64-cross
+
+    before_install:
+    - pip install --user awscli
+    - export PATH=$PATH:$HOME/.local/bin
+
+    script:
+    - ./autogen.sh
+    - CC="aarch64-linux-gnu-gcc-5" ./configure $OPUS_PARAMS --build=x86_64-pc-linux-gnu --host=aarch64-linux-gnu
+    - make
+    - aarch64-linux-gnu-strip .libs/libopus.so
+    - "git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > revision.git"
+    - "aws s3 cp .libs/libopus.so s3://build.lwjgl.org/nightly/linux/arm64/ $S3_PARAMS"
+    - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/linux/arm64/libopus.so.git $S3_PARAMS"
+
+  # -----------------
+  - name: "macOS"
+  # -----------------
+    language: objective-c
+    osx_image: xcode11.3
+    compiler: clang
+
+    before_install:
+    - brew update
+
+    install:
+    - brew install awscli
+
+    script:
+    - ./autogen.sh
+    - ./configure $OPUS_PARAMS
+    - make
+    - strip -u -r .libs/libopus.dylib
+    - "git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > revision.git"
+    - "aws s3 cp .libs/libopus.dylib s3://build.lwjgl.org/nightly/macosx/x64/ $S3_PARAMS"
+    - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/macosx/x64/libopus.dylib.git $S3_PARAMS"
