@@ -32,6 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 /* Comment out the next line for floating-point code */
 /*#define FIXED_POINT           1 */
+#define CUSTOM_MODES          1
 
 #define OPUS_BUILD            1
 
