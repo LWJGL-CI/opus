@@ -90,6 +90,33 @@ matrix:
     - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/linux/arm64/libopus.so.git $S3_PARAMS"
 
   # -----------------
+  - name: "Linux mips64"
+  # -----------------
+    dist: xenial
+    language: c
+    compiler: gcc
+
+    addons:
+      apt:
+        packages:
+        - gcc-5-mips64el-linux-gnuabi64 # neon code compilation bugged on 4.8
+        - libc6-dev-mips64el-cross
+
+    before_install:
+    - pip install --user awscli
+    - export PATH=$PATH:$HOME/.local/bin
+
+    script:
+    - ./autogen.sh
+    - CC="mips64el-linux-gnuabi64-gcc-5" ./configure $OPUS_PARAMS --build=x86_64-pc-linux-gnu --host=mips64el-linux-gnuabi64
+    - make
+    - mips64el-linux-gnuabi64-strip .libs/libopus.so
+    - "git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > revision.git"
+    - "aws s3 cp .libs/libopus.so s3://build.lwjgl.org/nightly/linux/mips64/ $S3_PARAMS"
+    - "aws s3 cp revision.git s3://build.lwjgl.org/nightly/linux/mips64/libopus.so.git $S3_PARAMS"
+
+
+  # -----------------
   - name: "macOS"
   # -----------------
     language: objective-c
