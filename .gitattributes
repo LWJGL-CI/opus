@@ -3,6 +3,8 @@
 
 update_version		export-ignore
 
+*	-text
+
 *.bat eol=crlf
 *.sln eol=crlf
 *.vcxproj eol=crlf
