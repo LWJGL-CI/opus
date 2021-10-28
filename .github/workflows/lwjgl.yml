@@ -1,0 +1,154 @@
+name: LWJGL Build
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
+  OPUS_PARAMS: --disable-extra-programs --disable-doc --disable-hardening --disable-stack-protector --enable-custom-modes
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-18.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [x64, arm32, arm64, mips64]
+        include:
+          # -----
+          - ARCH: x64
+            PACKAGES:
+            CC:
+            HOST: x86_64-pc-linux-gnu
+            STRIP: strip
+          # -----
+          - ARCH: arm32
+            PACKAGES: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+            CC: CC=arm-linux-gnueabihf-gcc
+            HOST: arm-unknown-linux-gnueabihf
+            STRIP: arm-linux-gnueabihf-strip
+          # -----
+          - ARCH: arm64
+            PACKAGES: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+            CC: CC=aarch64-linux-gnu-gcc
+            HOST: aarch64-unknown-linux-gnu
+            STRIP: aarch64-linux-gnu-strip
+          # -----
+          - ARCH: mips64
+            PACKAGES: gcc-mips64el-linux-gnuabi64 libc6-dev-mips64el-cross
+            CC: CC=mips64el-linux-gnuabi64-gcc
+            HOST: mips64el-unknown-linux-gnu
+            STRIP: mips64el-linux-gnuabi64-strip
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 3
+          submodules: true
+      - run: |
+          sudo apt-get update
+          sudo apt-get -yq install ${{matrix.PACKAGES}}
+        name: Install dependencies
+        if: ${{ matrix.PACKAGES != '' }}
+      - run: |
+          cd ogg
+          ./autogen.sh
+          ./configure --host=${{matrix.HOST}}
+        name: Configure ogg
+      - run: |
+          ./autogen.sh
+          ${{matrix.CC}} ./configure ${{env.OPUS_PARAMS}} --host=${{matrix.HOST}}
+        name: Configure build
+      - run: |
+          make
+          ${{matrix.STRIP}} .libs/libopus.so
+        name: Build
+      - run: aws s3 cp .libs/libopus.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Upload artifact
+      - run: |
+          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libopus.so.git
+          aws s3 cp libopus.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Upload git revision
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [x64, arm64]
+        include:
+          - ARCH: x64
+            CC: CFLAGS="-O2 -mmacosx-version-min=10.9" LDFLAGS=-mmacosx-version-min=10.9
+            HOST: x86_64
+            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
+          - ARCH: arm64
+            CC: SDKROOT=$(xcrun -sdk macosx11.1 --show-sdk-path) MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx11.1 --show-sdk-platform-version) CFLAGS="-O2 -target aarch64-apple-darwin -arch arm64 -mmacosx-version-min=11.0" LDFLAGS="-target aarch64-apple-darwin -arch arm64 -mmacosx-version-min=11.0"
+            HOST: aarch64
+            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_TOOLCHAIN_FILE=../XCompile-lwjgl.cmake -DSYSTEM_NAME=Darwin -DSYSTEM_PROCESSOR=aarch64
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 3
+          submodules: true
+      - run: brew install automake
+        name: Install dependencies
+      - run: |
+          ./autogen.sh
+          ${{matrix.CC}} ./configure ${{env.OPUS_PARAMS}} --target ${{matrix.ARCH}}-apple-darwin20 --host=${{matrix.HOST}}-apple-darwin20
+        name: Configure build
+      - run: |
+          ${{matrix.CC}} make
+          strip -u -r .libs/libopus.dylib
+        name: Build
+      - run: aws s3 cp .libs/libopus.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Upload artifact
+      - run: |
+          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libopus.dylib.git
+          aws s3 cp libopus.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ $S3_PARAMS
+        name: Upload git revision
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [x86, x64, arm64]
+        include:
+          - ARCH: x86
+            PLATFORM: Win32
+          - ARCH: x64
+            PLATFORM: x64
+          - ARCH: arm64
+            PLATFORM: ARM64
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 3
+          submodules: true
+      - run: |
+          mkdir build
+          cd build
+          cmake -G "Visual Studio 17 2022" -A ${{matrix.PLATFORM}} -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF -DOPUS_HARDENING=OFF -DOPUS_STACK_PROTECTOR=OFF -DOPUS_BUILD_SHARED_LIBRARY=ON -DOPUS_CUSTOM_MODES=ON ..
+        shell: cmd
+        name: Configure build
+      - run: |
+          cd build
+          cmake --build . --config Release
+        shell: cmd
+        name: Build
+      - run: aws s3 cp build\Release\opus.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+        shell: cmd
+        name: Upload artifact
+      - run: |
+          git log --first-parent --pretty=format:%%H HEAD~2..HEAD~1 > opus.dll.git
+          aws s3 cp opus.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+        shell: cmd
+        name: Upload git revision
+

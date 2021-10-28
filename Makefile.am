@@ -10,7 +10,11 @@ lib_LTLIBRARIES = libopus.la
 DIST_SUBDIRS = doc
 
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/celt -I$(top_srcdir)/silk \
-              -I$(top_srcdir)/silk/float -I$(top_srcdir)/silk/fixed $(NE10_CFLAGS)
+              -I$(top_srcdir)/silk/float -I$(top_srcdir)/silk/fixed $(NE10_CFLAGS) \
+              -I$(top_srcdir)/libopusenc/include \
+              -I$(top_srcdir)/ogg/include \
+              -I$(top_srcdir)/opusfile/include \
+              -DOUTSIDE_SPEEX -DRANDOM_PREFIX=lwjgl -DRESAMPLE_FULL_SINC_TABLE=1 -DOPE_BUILD
 
 include celt_sources.mk
 include silk_sources.mk
