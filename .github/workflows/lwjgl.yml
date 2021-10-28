@@ -1,0 +1,254 @@
+name: LWJGL Build
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
+  OPUS_PARAMS: --disable-extra-programs --disable-doc --disable-hardening --disable-stack-protector --enable-custom-modes --enable-dred --enable-osce
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:8
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [ x64 ]
+        include:
+          - ARCH: x64
+            PACKAGES: alsa-lib-devel pulseaudio-libs-devel portaudio-devel jack-audio-connection-kit-devel dbus-devel pipewire-devel
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git
+        run: dnf -y install git
+      - name: Clone repository
+        run: git clone --recurse-submodules --shallow-submodules --depth 3 https://github.com/${{ github.repository }}.git .
+      - name: Install build dependencies
+        run: |
+          dnf -y install epel-release wget
+          wget https://pkgs.sysadmins.ws/el8/base/x86_64/raven-release-1.0.1-1.el8.noarch.rpm
+          rpm -ivh raven-release-1.0.1-1.el8.noarch.rpm
+          dnf config-manager --set-enabled powertools
+          dnf config-manager --set-enabled raven-extras
+          dnf -y update
+          dnf -y install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ autoconf automake libtool wget awscli
+      - name: Configure ogg
+        run: |
+          source /opt/rh/gcc-toolset-15/enable || true
+          cd ogg
+          ./autogen.sh
+          ./configure
+      - name: Configure build
+        run: |
+          source /opt/rh/gcc-toolset-15/enable || true
+          ./autogen.sh
+          ./configure ${{env.OPUS_PARAMS}}
+      - name: Build
+        run: |
+          source /opt/rh/gcc-toolset-15/enable || true
+          make -j8
+          strip .libs/libopus.so
+      - name: Upload artifact
+        run: aws s3 cp .libs/libopus.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+      - name: Upload git revision
+        run: |
+          git config --global --add safe.directory $PWD
+          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopus.so.git
+          aws s3 cp libopus.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+
+  linux-cross:
+    name: Linux Cross
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [arm32, arm64, ppc64le, riscv64]
+        include:
+          # -----
+          - ARCH: arm32
+            CROSS_ARCH: armhf
+            TRIPLET: arm-linux-gnueabihf
+            HOST: arm-unknown-linux-gnueabihf
+          # -----
+          - ARCH: arm64
+            CROSS_ARCH: arm64
+            TRIPLET: aarch64-linux-gnu
+            HOST: aarch64-unknown-linux-gnu
+          # ----
+          - ARCH: ppc64le
+            CROSS_ARCH: ppc64el
+            TRIPLET: powerpc64le-linux-gnu
+            HOST: powerpc64le-unknown-linux-gnu
+          # -----
+          - ARCH: riscv64
+            CROSS_ARCH: riscv64
+            TRIPLET: riscv64-linux-gnu
+            HOST: riscv64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+          submodules: true
+      - name: Install dependencies
+        run: |
+          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install awscli autoconf make libtool wget \
+            gcc-12-${{matrix.TRIPLET}} \
+            libc6-dev-${{matrix.CROSS_ARCH}}-cross
+      - name: Configure ogg
+        run: |
+          cd ogg
+          ./autogen.sh
+          ./configure --host=${{matrix.HOST}}
+      - name: Configure build
+        run: |
+          export PKG_CONFIG_LIBDIR="/usr/lib/${{matrix.TRIPLET}}/pkgconfig:/usr/share/pkgconfig"
+          ./autogen.sh
+          CC=${{matrix.TRIPLET}}-gcc-12 ./configure ${{env.OPUS_PARAMS}} --host=${{matrix.HOST}}
+      - name: Build
+        run: |
+          make -j8
+          ${{matrix.TRIPLET}}-strip .libs/libopus.so
+      - name: Upload artifact
+        run: aws s3 cp .libs/libopus.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+      - name: Upload git revision
+        run: |
+          git config --global --add safe.directory $(pwd)
+          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopus.so.git
+          aws s3 cp libopus.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+
+  freebsd-cross:
+    name: FreeBSD Cross
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+          submodules: true
+      - name: Build
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: freebsd
+          architecture: x86-64
+          version: '13.5'
+          memory: 4G
+          shell: bash
+          environment_variables: OPUS_PARAMS
+          run: |
+            sudo pkg install -y autoconf automake libtool gmake wget
+            cd ogg
+            ./autogen.sh
+            ./configure
+            cd ..
+            ./autogen.sh
+            ./configure $OPUS_PARAMS
+            gmake -j2
+            strip .libs/libopus.so
+      - name: Upload artifact
+        run: aws s3 cp .libs/libopus.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
+      - name: Upload git revision
+        run: |
+          git config --global --add safe.directory $PWD
+          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopus.so.git
+          aws s3 cp libopus.so.git s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [x64, arm64]
+        include:
+          - ARCH: x64
+            DARWIN: 15
+            CC: MACOSX_DEPLOYMENT_TARGET=10.11 CFLAGS="-O2 -target x64-apple-darwin -arch x86_64 -mmacosx-version-min=10.11" LDFLAGS="-target x64-apple-darwin -arch x86_64 -mmacosx-version-min=10.11"
+            HOST: x86_64
+          - ARCH: arm64
+            DARWIN: 20
+            CC: MACOSX_DEPLOYMENT_TARGET=11.0 CFLAGS="-O2 -target aarch64-apple-darwin -arch arm64 -mmacosx-version-min=11.0" LDFLAGS="-target aarch64-apple-darwin -arch arm64 -mmacosx-version-min=11.0"
+            HOST: aarch64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+          submodules: true
+      - name: Install dependencies
+        run: brew install automake libtool
+      - name: Configure build
+        run: |
+          ./autogen.sh
+          ${{matrix.CC}} ./configure ${{env.OPUS_PARAMS}} --target ${{matrix.ARCH}}-apple-darwin${{matrix.DARWIN}} --host=${{matrix.HOST}}-apple-darwin${{matrix.DARWIN}}
+      - name: Build
+        run: |
+          ${{matrix.CC}} make
+          strip -u -r .libs/libopus.dylib
+      - name: Upload artifact
+        run: aws s3 cp .libs/libopus.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+      - name: Upload git revision
+        run: |
+          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopus.dylib.git
+          aws s3 cp libopus.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ARCH: [x86, x64, arm64]
+        include:
+          - ARCH: x86
+            PLATFORM: Win32
+            #VCTOOLS: x86.x64
+          - ARCH: x64
+            #-T ClangCL
+            PLATFORM: x64
+            #VCTOOLS: x86.x64
+          - ARCH: arm64
+            #-T ClangCL
+            PLATFORM: ARM64
+            #VCTOOLS: ARM64
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 3
+          submodules: true
+#      - name: Install Visual Studio 2026 Build Tools
+#        shell: pwsh
+#        run: |
+#          choco install cmake
+#          choco install visualstudio2026buildtools --package-parameters "`
+#            --add Microsoft.VisualStudio.Workload.VCTools `
+#            --add Microsoft.VisualStudio.Component.VC.Tools.${{matrix.VCTOOLS}} `
+#            --includeRecommended `
+#            --quiet" `
+#            -y `
+#            --ignore-package-exit-codes=3010
+      - name: Configure build
+        run: |
+          call dnn/download_model.bat a5177ec6fb7d15058e99e57029746100121f68e4890b1467d4094aa336b6013e
+          cmake -B build -G "Visual Studio 17 2022" -A ${{matrix.PLATFORM}} -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF -DOPUS_HARDENING=OFF -DOPUS_STACK_PROTECTOR=OFF -DOPUS_BUILD_SHARED_LIBRARY=ON -DOPUS_STATIC_RUNTIME=ON -DOPUS_CUSTOM_MODES=ON -DOPUS_DRED=ON -DOPUS_OSCE=ON
+      - name: Build
+        run: cmake --build build --parallel --config Release
+      - name: Upload artifact
+        run: aws s3 cp build\Release\opus.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+      - name: Upload git revision
+        run: |
+          git log --first-parent --pretty=format:%H --skip 1 -n 1 > opus.dll.git
+          aws s3 cp opus.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}

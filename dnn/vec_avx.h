@@ -142,12 +142,12 @@ static inline mm256_emu mm256_rcp_ps(mm256_emu a) {
 }
 #define _mm256_rcp_ps(a) mm256_rcp_ps(a)
 
+// LWJGL: workaround compiler crash on x86 with VS 2026
+static inline __m128 mm256_extractf128_ps_0(mm256_emu x) { return x.lo; }
+static inline __m128 mm256_extractf128_ps_1(mm256_emu x) { return x.hi; }
 
-static inline __m128 mm256_extractf128_ps(mm256_emu x, int i) {
-    return (i==0) ? x.lo : x.hi;
-}
 #undef _mm256_extractf128_ps
-#define _mm256_extractf128_ps(x,i) mm256_extractf128_ps(x,i)
+#define _mm256_extractf128_ps(x,i) mm256_extractf128_ps_##i((x))
 
 static inline mm256_emu mm256_insertf128_ps(mm256_emu dst, __m128 src, int i) {
     if (i==0) dst.lo = src;
