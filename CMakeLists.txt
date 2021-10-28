@@ -270,6 +270,9 @@ set_target_properties(opus
 target_include_directories(
   opus
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libopusenc/include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ogg/include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/opusfile/include>
          $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
          $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/opus>
   PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
@@ -279,6 +282,12 @@ target_include_directories(
 
 target_link_libraries(opus PRIVATE ${OPUS_REQUIRED_LIBRARIES})
 target_compile_definitions(opus PRIVATE OPUS_BUILD)
+target_compile_definitions(opus PRIVATE OUTSIDE_SPEEX)
+target_compile_definitions(opus PRIVATE RANDOM_PREFIX=lwjgl)
+target_compile_definitions(opus PRIVATE RESAMPLE_FULL_SINC_TABLE=1)
+target_compile_definitions(opus PRIVATE OPE_BUILD)
+target_compile_definitions(opus PRIVATE PACKAGE_NAME="opus")
+target_compile_definitions(opus PRIVATE PACKAGE_VERSION="${PACKAGE_VERSION}")
 
 if(OPUS_FIXED_POINT_DEBUG)
   target_compile_definitions(opus PRIVATE FIXED_DEBUG)
