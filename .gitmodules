@@ -1,0 +1,9 @@
+[submodule "opusfile"]
+	path = opusfile
+	url = ../../xiph/opusfile.git
+[submodule "ogg"]
+	path = ogg
+	url = ../../xiph/ogg.git
+[submodule "libopusenc"]
+	path = libopusenc
+	url = ../../xiph/libopusenc.git
