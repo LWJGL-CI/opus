@@ -70,30 +70,40 @@ jobs:
     name: Linux Cross
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:18.04
+      image: ${{matrix.CONTAINER}}
     strategy:
       fail-fast: false
       matrix:
-        ARCH: [arm32, arm64, mips64]
+        ARCH: [arm32, arm64, mips64, riscv64]
         include:
           # -----
           - ARCH: arm32
+            CONTAINER: ubuntu:18.04
             PACKAGES: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
             CC: CC=arm-linux-gnueabihf-gcc
             HOST: arm-unknown-linux-gnueabihf
             STRIP: arm-linux-gnueabihf-strip
           # -----
           - ARCH: arm64
+            CONTAINER: ubuntu:18.04
             PACKAGES: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
             CC: CC=aarch64-linux-gnu-gcc
             HOST: aarch64-unknown-linux-gnu
             STRIP: aarch64-linux-gnu-strip
           # -----
           - ARCH: mips64
+            CONTAINER: ubuntu:18.04
             PACKAGES: gcc-mips64el-linux-gnuabi64 libc6-dev-mips64el-cross
             CC: CC=mips64el-linux-gnuabi64-gcc
             HOST: mips64el-unknown-linux-gnu
             STRIP: mips64el-linux-gnuabi64-strip
+          # -----
+          - ARCH: riscv64
+            CONTAINER: ubuntu:20.04
+            PACKAGES: gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
+            CC: CC=riscv64-linux-gnu-gcc
+            HOST: riscv64-unknown-linux-gnu
+            STRIP: riscv64-linux-gnu-strip
     steps:
       - run: |
           apt-get -y update
@@ -105,6 +115,9 @@ jobs:
           apt-key add kitware-archive-latest.asc
           add-apt-repository -y 'deb https://apt.kitware.com/ubuntu/ bionic main'
           add-apt-repository -y ppa:git-core/ppa
+        name: Update apt repositories
+        if: ${{ matrix.CONTAINER == 'ubuntu:18.04' }}
+      - run: |
           apt-get -y update
           DEBIAN_FRONTEND=noninteractive apt-get -yq install awscli git
         name: Upgrade git
